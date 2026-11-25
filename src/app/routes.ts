@@ -69,7 +69,7 @@ const heroSchema = z.object({
 });
 
 async function userId(request: FastifyRequest): Promise<string> {
-  return (await container.authService.currentUser(bearerToken(request))).id;
+  return container.authService.userIdFor(bearerToken(request));
 }
 
 export async function registerRoutes(app: FastifyInstance): Promise<void> {

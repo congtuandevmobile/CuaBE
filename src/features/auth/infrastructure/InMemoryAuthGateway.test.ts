@@ -59,3 +59,26 @@ describe('InMemoryAuthGateway through AuthService', () => {
     await expect(service.refresh(s.refreshToken)).rejects.toMatchObject({ statusCode: 401 });
   });
 });
+
+describe('AuthService.userIdFor', () => {
+  it('asks the gateway once per token for 30 s, and forgets a signed-out token at once', async () => {
+    let now = 0;
+    const gateway = new InMemoryAuthGateway();
+    let calls = 0;
+    const verify = gateway.verify.bind(gateway);
+    gateway.verify = async (t: string) => {
+      calls += 1;
+      return verify(t);
+    };
+    const service = new AuthService(gateway, () => now);
+    const session = await service.signUp({ email: 'c@x.vn', username: 'cache', password: 'longenough' });
+    expect(await service.userIdFor(session.accessToken)).toBe(session.user.id);
+    expect(await service.userIdFor(session.accessToken)).toBe(session.user.id);
+    expect(calls).toBe(1);
+    now += 31_000;
+    await service.userIdFor(session.accessToken);
+    expect(calls).toBe(2);
+    await service.signOut(session.accessToken);
+    await expect(service.userIdFor(session.accessToken)).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+  });
+});

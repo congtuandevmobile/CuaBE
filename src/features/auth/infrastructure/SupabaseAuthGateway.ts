@@ -58,6 +58,12 @@ export class SupabaseAuthGateway implements AuthGateway {
     }
   }
 
+  async verify(accessToken: string): Promise<string> {
+    const { data, error } = await getSupabase().auth.getUser(accessToken);
+    if (error || !data.user) throw new AppError('Invalid or expired token', 401, 'UNAUTHORIZED');
+    return data.user.id;
+  }
+
   async getUser(accessToken: string): Promise<AuthUser> {
     const { data, error } = await getSupabase().auth.getUser(accessToken);
     if (error || !data.user) throw new AppError('Invalid or expired token', 401, 'UNAUTHORIZED');

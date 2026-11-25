@@ -35,4 +35,6 @@ export interface AuthGateway {
   refresh(refreshToken: string): Promise<AuthSession>;
   signOut(accessToken: string): Promise<void>;
   getUser(accessToken: string): Promise<AuthUser>;
+  /** Only checks the token and answers the user id: what every protected route needs (no profile lookup). */
+  verify(accessToken: string): Promise<string>;
 }

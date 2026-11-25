@@ -64,6 +64,10 @@ export class InMemoryAuthGateway implements AuthGateway {
     for (const [token, userId] of this.refreshTokens) if (userId === entry.userId) this.refreshTokens.delete(token);
   }
 
+  async verify(accessToken: string): Promise<string> {
+    return (await this.getUser(accessToken)).id;
+  }
+
   async getUser(accessToken: string): Promise<AuthUser> {
     const entry = this.access.get(accessToken);
     const user = entry && entry.expiresAt > this.nowS() ? this.byId(entry.userId) : undefined;
