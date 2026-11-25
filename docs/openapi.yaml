@@ -1,0 +1,259 @@
+openapi: 3.0.3
+info:
+  title: Cua API
+  version: 0.1.0
+servers:
+  - url: http://localhost:4000
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      security: []
+      responses:
+        '200': { description: Healthy }
+  /v1/auth/signup:
+    post:
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignUpInput' }
+      responses:
+        '201': { description: Created and signed in, content: { application/json: { schema: { $ref: '#/components/schemas/SessionResponse' } } } }
+        '400': { description: VALIDATION_ERROR / AUTH_EMAIL_INVALID / AUTH_USERNAME_INVALID, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: AUTH_EMAIL_TAKEN / AUTH_USERNAME_TAKEN, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /v1/auth/login:
+    post:
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Credentials' }
+      responses:
+        '200': { description: Authenticated, content: { application/json: { schema: { $ref: '#/components/schemas/SessionResponse' } } } }
+        '401': { description: AUTH_LOGIN_FAILED, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+  /v1/auth/refresh:
+    post:
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [refreshToken], properties: { refreshToken: { type: string } } }
+      responses:
+        '200': { description: New session (the refresh token rotates), content: { application/json: { schema: { $ref: '#/components/schemas/SessionResponse' } } } }
+        '401': { description: AUTH_REFRESH_FAILED }
+  /v1/auth/me:
+    get:
+      responses:
+        '200': { description: Current user, content: { application/json: { schema: { type: object, properties: { user: { $ref: '#/components/schemas/User' } } } } } }
+        '401': { description: UNAUTHORIZED }
+  /v1/auth/logout:
+    post:
+      responses: { '204': { description: Logged out } }
+  /v1/profile:
+    get: { responses: { '200': { description: Profile } } }
+    put: { requestBody: { $ref: '#/components/requestBodies/Profile' }, responses: { '200': { description: Replaced profile } } }
+    patch: { requestBody: { $ref: '#/components/requestBodies/Profile' }, responses: { '200': { description: Updated profile } } }
+  /v1/activities:
+    get:
+      description: Newest first (startedAt desc, id desc). See docs/activities.md.
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 20 } }
+        - { name: cursor, in: query, schema: { type: string }, description: nextCursor of the previous page }
+        - { name: source, in: query, schema: { type: string, enum: [phone, apple_health] } }
+      responses:
+        '200': { description: One page, content: { application/json: { schema: { $ref: '#/components/schemas/ActivityPage' } } } }
+        '400': { description: VALIDATION_ERROR / ACTIVITY_CURSOR_INVALID }
+        '401': { description: UNAUTHORIZED }
+    post:
+      description: A phone recording, idempotent on clientId.
+      requestBody: { $ref: '#/components/requestBodies/Activity' }
+      responses:
+        '201': { description: Stored now, content: { application/json: { schema: { $ref: '#/components/schemas/ActivityWrite' } } } }
+        '200': { description: 'Already stored (same clientId): the stored activity, created: false', content: { application/json: { schema: { $ref: '#/components/schemas/ActivityWrite' } } } }
+        '400': { description: VALIDATION_ERROR }
+        '401': { description: UNAUTHORIZED }
+  /v1/activities/import:
+    post:
+      description: Batch import (Apple Health), deduplicated by (user, source, externalId) then by type + start/end within 60 s.
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/ImportInput' } }
+      responses:
+        '200': { description: Per-item outcome, content: { application/json: { schema: { $ref: '#/components/schemas/ImportResult' } } } }
+        '400': { description: VALIDATION_ERROR (incl. more than 200 items) }
+        '401': { description: UNAUTHORIZED }
+  /v1/activities/{id}:
+    get:
+      parameters: [{ name: id, in: path, required: true, schema: { type: string } }]
+      responses:
+        '200': { description: The activity, content: { application/json: { schema: { type: object, properties: { activity: { $ref: '#/components/schemas/Activity' } } } } } }
+        '404': { description: ACTIVITY_NOT_FOUND (unknown or another user's) }
+  /v1/hero:
+    get:
+      description: The signed-in user's hero. See docs/hero.md.
+      responses:
+        '200': { description: The hero, content: { application/json: { schema: { type: object, properties: { hero: { $ref: '#/components/schemas/Hero' } } } } } }
+        '404': { description: HERO_NOT_FOUND }
+    put:
+      description: Creates or replaces the whole hero (last write wins).
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { $ref: '#/components/schemas/HeroInput' } }
+      responses:
+        '200': { description: Saved, content: { application/json: { schema: { type: object, properties: { hero: { $ref: '#/components/schemas/Hero' } } } } } }
+        '400': { description: VALIDATION_ERROR / HERO_INVALID }
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer }
+  requestBodies:
+    Profile:
+      required: true
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/ProfileInput' } }
+    Activity:
+      required: true
+      content:
+        application/json: { schema: { $ref: '#/components/schemas/ActivityInput' } }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: object, properties: { code: { type: string }, message: { type: string } } }
+    User:
+      type: object
+      properties:
+        id: { type: string, description: Internal UUID }
+        username: { type: string }
+        email: { type: string }
+        name: { type: string }
+        code: { type: string, description: 'Public 6-character code, e.g. ABC314' }
+    Session:
+      type: object
+      properties:
+        accessToken: { type: string }
+        refreshToken: { type: string }
+        expiresAt: { type: integer, description: Epoch seconds }
+        user: { $ref: '#/components/schemas/User' }
+    SessionResponse:
+      type: object
+      properties: { session: { $ref: '#/components/schemas/Session' } }
+    SignUpInput:
+      type: object
+      required: [email, username, password]
+      properties:
+        name: { type: string, maxLength: 80, description: Display name }
+        email: { type: string, format: email }
+        username: { type: string, pattern: '^[a-zA-Z0-9_.]{3,30}$', description: Case-insensitive }
+        password: { type: string, minLength: 8 }
+        guestId: { type: string, description: Local guest id of the device }
+    Credentials:
+      type: object
+      required: [username, password]
+      properties:
+        username: { type: string, description: Username or email }
+        password: { type: string }
+    ProfileInput:
+      type: object
+      properties:
+        username: { type: string, nullable: true }
+        displayName: { type: string, nullable: true }
+        avatarUrl: { type: string, format: uri, nullable: true }
+        bio: { type: string, nullable: true }
+    ActivityFields:
+      type: object
+      required: [activityType, startedAt, endedAt, durationSec]
+      properties:
+        activityType: { type: string, pattern: '^[a-zA-Z][a-zA-Z0-9_]{0,63}$', example: running }
+        startedAt: { type: string, format: date-time }
+        endedAt: { type: string, format: date-time }
+        durationSec: { type: number, minimum: 0, maximum: 604800 }
+        distanceMeters: { type: number, nullable: true, minimum: 0 }
+        energyKcal: { type: number, nullable: true, minimum: 0 }
+        sourceName: { type: string, nullable: true, maxLength: 120 }
+        metadata: { type: object, maxProperties: 20, additionalProperties: { nullable: true, oneOf: [{ type: string }, { type: number }, { type: boolean }] } }
+    ActivityInput:
+      allOf:
+        - $ref: '#/components/schemas/ActivityFields'
+        - type: object
+          required: [clientId]
+          properties:
+            clientId: { type: string, pattern: '^[A-Za-z0-9._:-]{8,128}$', description: Generated once on the device, reused on retries }
+    ImportInput:
+      type: object
+      required: [source, items]
+      properties:
+        source: { type: string, enum: [apple_health] }
+        items:
+          type: array
+          maxItems: 200
+          items:
+            allOf:
+              - $ref: '#/components/schemas/ActivityFields'
+              - type: object
+                properties: { externalId: { type: string, nullable: true, description: HealthKit workout UUID } }
+    ImportResult:
+      type: object
+      properties:
+        created: { type: integer }
+        skipped: { type: integer }
+        results:
+          type: array
+          items:
+            type: object
+            properties:
+              index: { type: integer }
+              externalId: { type: string, nullable: true }
+              status: { type: string, enum: [created, skipped] }
+              activityId: { type: string }
+              reason: { type: string, enum: [external_id, time_window, in_batch] }
+    Activity:
+      allOf:
+        - $ref: '#/components/schemas/ActivityFields'
+        - type: object
+          properties:
+            id: { type: string }
+            userId: { type: string }
+            source: { type: string, enum: [phone, apple_health] }
+            externalId: { type: string, nullable: true }
+            createdAt: { type: string, format: date-time }
+    ActivityWrite:
+      type: object
+      properties:
+        activity: { $ref: '#/components/schemas/Activity' }
+        created: { type: boolean }
+    ActivityPage:
+      type: object
+      properties:
+        activities: { type: array, items: { $ref: '#/components/schemas/Activity' } }
+        nextCursor: { type: string, nullable: true }
+    HeroInput:
+      type: object
+      required: [name, gender, skinTone, equipment]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 40 }
+        gender: { type: string, enum: [male, female] }
+        skinTone: { type: integer, minimum: 0, maximum: 5 }
+        equipment:
+          type: object
+          additionalProperties: false
+          required: [top, bottom, shoes, sandals, watch, hat, hair]
+          properties:
+            top: { type: string }
+            bottom: { type: string }
+            shoes: { type: string }
+            sandals: { type: string }
+            watch: { type: string }
+            hat: { type: string }
+            hair: { type: string }
+    Hero:
+      allOf:
+        - $ref: '#/components/schemas/HeroInput'
+        - type: object
+          properties: { updatedAt: { type: string, format: date-time } }
